@@ -30,3 +30,6 @@ async def get_scrapers():
         return scrapers  # Return the full scraper objects directly
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# bikin endpoint get baru buat hasil berita yang udah di scrape.
