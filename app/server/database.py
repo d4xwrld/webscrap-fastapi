@@ -13,26 +13,19 @@ async def scrape_webpage(url: str) -> dict:
     session = AsyncHTMLSession()
     try:
         r = await session.get(url)
-        await r.html.arender(sleep=1, scrolldown=10)  # For JavaScript rendered content
-
-        # Get all links from the page
+        await r.html.arender(sleep=1, scrolldown=15)
         title = r.html.find("h2.post_title, h2.post_title_medium", first=True)
         if not title:
             print("No title found")
         else:
             web_url = []
-            # Find all 'a' tags and extract their href attributes
             for link in r.html.find("a"):
                 if "href" in link.attrs:
-                    # Convert relative URLs to absolute URLs
                     absolute_url = list(r.html.absolute_links)
-                    # Only include links that contain "antaranews.com/berita/"
                     filtered_urls = [
                         url for url in absolute_url if "antaranews.com/berita/" in url
                     ]
-                    if (
-                        filtered_urls and filtered_urls not in web_url
-                    ):  # Avoid duplicates
+                    if filtered_urls and filtered_urls not in web_url:
                         web_url.append(filtered_urls)
                     print(filtered_urls)
             return {
