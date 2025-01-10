@@ -48,18 +48,15 @@ async def scrape_webpage(url: str) -> dict:
 
 def scraper_helper(scraper: dict) -> dict:
     """Format scraper document into response schema with safe key access"""
+    # Get only the links array from scraper
     links = scraper.get("links", [[]])
-    if not isinstance(links, list) or (links and not isinstance(links[0], list)):
+    if not isinstance(links, list):
         links = [[]]
+    elif links and not isinstance(links[0], list):
+        links = [links]  # Wrap single list in outer list
 
-    return {
-        "id": str(scraper["_id"]),
-        "url": scraper.get("url", ""),
-        "links": links,
-        "created_at": scraper.get(
-            "created_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ),
-    }
+    # Return only the links field
+    return {"links": links}
 
 
 # CRUD Operations
