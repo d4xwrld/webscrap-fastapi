@@ -48,19 +48,59 @@ async def scrape_webpage(url: str) -> dict:
 
 def scraper_helper(scraper: dict) -> dict:
     """Format scraper document into response schema with safe key access"""
-    # Get only the links array from scraper
     links = scraper.get("links", [[]])
     if not isinstance(links, list):
         links = [[]]
     elif links and not isinstance(links[0], list):
         links = [links]  # Wrap single list in outer list
 
-    # Return only the links field
-    return {"links": links}
+    return {
+        "id": str(scraper["_id"]),  # Convert ObjectId to string
+        "url": scraper.get("url", ""),
+        "links": links,
+        "created_at": scraper.get(
+            "created_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ),
+    }
+
+
+async def add_scraper(url: str) -> dict:
+    try:
+        scraped_data = await scrape_webpage(url)
+
+        # Ensure created_at exists
+        if "created_at" not in scraped_data:
+            scraped_data["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        scraper = await scraper_collection.insert_one(scraped_data)
+        new_scraper = await scraper_collection.find_one({"_id": scraper.inserted_id})
+
+        if not new_scraper:
+            raise Exception("Failed to retrieve newly created scraper")
+
+        return scraper_helper(new_scraper)  # Use helper to format response
+    except Exception as e:
+        raise Exception(f"Error adding scraper: {str(e)}")
 
 
 # CRUD Operations
 async def add_scraper(url: str) -> dict:
+    try:
+        scraped_data = await scrape_webpage(url)
+
+        # Ensure created_at exists
+        if "created_at" not in scraped_data:
+            scraped_data["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        scraper = await scraper_collection.insert_one(scraped_data)
+        new_scraper = await scraper_collection.find_one({"_id": scraper.inserted_id})
+
+        if not new_scraper:
+            raise Exception("Failed to retrieve newly created scraper")
+
+        return scraper_helper(new_scraper)  # Use helper to format response
+    except Exception as e:
+        raise Exception(f"Error adding scraper: {str(e)}")
     try:
         # Scrape data from URL
         scraped_data = await scrape_webpage(url)
