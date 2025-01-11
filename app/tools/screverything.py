@@ -1,6 +1,7 @@
 from requests_html import HTMLSession
 from pymongo import MongoClient
 from bson.objectid import ObjectId
+from datetime import datetime
 
 # Connect to MongoDB
 client = MongoClient("mongodb://127.0.0.1:27017/")
@@ -64,7 +65,17 @@ for url in urls:
                         "source_url": url,
                         "title": title,
                         "author": name,
-                        "date": newsitem_date.text if newsitem_date else "No date",
+                        # "date": newsitem_date.text if newsitem_date else "No date",
+                        "date": (
+                            datetime.strptime(
+                                newsitem_date.text.replace("WIB", "")
+                                .replace(",", "")
+                                .strip(),
+                                "%A %d %B %Y %H:%M",
+                            )
+                            if newsitem_date
+                            else None
+                        ),
                         "content": " ".join(p.text for p in newsitem_p),
                         "links": links,
                     }
