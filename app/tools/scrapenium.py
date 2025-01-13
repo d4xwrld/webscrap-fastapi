@@ -10,6 +10,8 @@ from bson.objectid import ObjectId
 import logging
 import os
 import locale
+from bs4 import BeautifulSoup
+import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,7 +22,7 @@ class NewsScraper:
         self.client = MongoClient("mongodb://127.0.0.1:27017/")
         self.db = self.client["scrapers"]
         self.collection = self.db["scraper_collection"]
-        self.content_collection = self.db["scrapenium_collection"]
+        self.content_collection = self.db["final_collection"]
         self.setup_driver()
 
     def setup_driver(self):
@@ -32,11 +34,14 @@ class NewsScraper:
         self.driver = webdriver.Firefox(service=service, options=firefox_options)
         self.wait = WebDriverWait(self.driver, 10)
 
-    def get_urls(self, document_id):
-        document = self.collection.find_one({"_id": ObjectId(document_id)})
-        if document and "links" in document:
-            return document["links"][0] if document["links"] else []
-        return []
+    def get_urls(self):
+        url = "https://www.antaranews.com/terkini/"
+        page = requests.get(url)
+        scrap = BeautifulSoup(page.text, "html.parser")
+        result = scrap.find_all("h2", class_="post_title post_title_medium")
+        links = [item.find("a")["href"] for item in result if item.find("a")]
+        logger.info(f"URLs to process: {links}")
+        return links
 
     def scrape_article(self, url):
         try:
@@ -58,7 +63,7 @@ class NewsScraper:
                     (By.CLASS_NAME, "wrap__article-detail-info")
                 )
             ).find_element(By.TAG_NAME, "span")
-            date_text = date_element.text
+            # date_text = date_element.text
             date_str = date_element.text.replace("WIB", "").strip()
             parsed_date = datetime.strptime(date_str, "%A, %d %B %Y %H:%M")
 
@@ -68,9 +73,23 @@ class NewsScraper:
                 )
             ).text
 
+            author_element = self.wait.until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "p.text-muted.mt-2.small")
+                )
+            )
+            author = author_element.text.split("\n")[0].replace("Pewarta: ", "")
+
+            # author = self.wait.until(
+            #     EC.presence_of_element_located(
+            #         (By.CLASS_NAME, "wrap__article-detail-content").find_element(By.CSS_SELECTOR, "p.text-muted mt-2 small")
+            #     )
+            # )
+
             data = {
                 "url": url,
                 "title": title,
+                "author": author,
                 "date": parsed_date,
                 "content": content,
                 "scraped_at": datetime.now(),
@@ -92,10 +111,19 @@ class NewsScraper:
 def main():
     scraper = NewsScraper()
     try:
-        document_id = "6780b89a0876a4371fd73ead"
-        urls = scraper.get_urls(document_id)
+        # Step 1: Scrape the links from the website
+        urls = scraper.get_urls()
         logger.info(f"Found {len(urls)} URLs to process")
 
+        # Step 2: Save the links to the database
+        data = {
+            "links": urls,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        document_id = scraper.collection.insert_one(data).inserted_id
+        logger.info(f"Links inserted with document ID: {document_id}")
+
+        # Step 3: Scrape each article and save the content to the database
         for url in urls:
             result = scraper.scrape_article(url)
             if result:
