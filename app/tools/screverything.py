@@ -1,89 +1,121 @@
-from requests_html import HTMLSession
+from selenium import webdriver
+from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from datetime import datetime
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-from datetime import datetime
+import logging
+import os
+import locale
 
-# Connect to MongoDB
-client = MongoClient("mongodb://127.0.0.1:27017/")
-db = client["scrapers"]
-collection = db["scraper_collection"]
-document_id = "6780b89a0876a4371fd73ead"
-session = HTMLSession()
-urls = []
-document = collection.find_one({"_id": ObjectId(document_id)})
-if document and "links" in document:
-    urls = document["links"][0] if document["links"] else urls
-print(f"URLs to process: {urls}")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Create a new collection for storing the content
-content_collection = db["test_collection"]
 
-for url in urls:
-    if not url:
-        continue
+class NewsScraper:
+    def __init__(self):
+        self.client = MongoClient("mongodb://127.0.0.1:27017/")
+        self.db = self.client["scrapers"]
+        self.collection = self.db["scraper_collection"]
+        self.content_collection = self.db["test_collection"]
+        self.setup_driver()
+
+    def setup_driver(self):
+        firefox_options = Options()
+        firefox_options.add_argument("--headless")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        geckodriver_path = os.path.join(current_dir, "geckodriver")
+        service = Service(geckodriver_path)
+        self.driver = webdriver.Firefox(service=service, options=firefox_options)
+        self.wait = WebDriverWait(self.driver, 10)
+
+    def get_urls(self, document_id):
+        document = self.collection.find_one({"_id": ObjectId(document_id)})
+        if document and "links" in document:
+            return document["links"][0] if document["links"] else []
+        return []
+
+
+def scrape_article(self, url):
 
     try:
-        r = session.get(url)
-        r.html.render(sleep=1, scrolldown=3, timeout=30)
-        articles = r.html.find("div.wrap__article-detail")
+
+        self.driver.get(url)
+
+        title = (
+            self.wait.until(
+                EC.presence_of_element_located(
+                    (By.CLASS_NAME, "wrap__article-detail-title")
+                )
+            )
+            .find_element(By.TAG_NAME, "h1")
+            .text
+        )
+
+        # Set locale for date parsing
+
+        locale.setlocale(locale.LC_TIME, "id_ID.UTF-8")
+
+        date_element = self.wait.until(
+            EC.presence_of_element_located((By.CLASS_NAME, "wrap__article-detail-info"))
+        ).find_element(By.TAG_NAME, "span")
+
+        date_text = date_element.text
+
+        # Convert date string to datetime object
+
+        date_str = date_text.replace("WIB", "").strip()  # Use date_text here
+
+        parsed_date = datetime.strptime(date_str, "%A, %d %B %Y %H:%M")
+
+        content = self.wait.until(
+            EC.presence_of_element_located(
+                (By.CLASS_NAME, "wrap__article-detail-content")
+            )
+        ).text
+
+        data = {
+            "url": url,
+            "title": title,
+            "date": parsed_date,  # Store the parsed date here
+            "content": content,
+            "scraped_at": datetime.now(),
+        }
+
+        self.content_collection.insert_one(data)
+
+        logger.info(f"Scraped: {title}")
+
+        return data
+
     except Exception as e:
-        print(f"Error loading page {url}: {str(e)}")
-        continue
 
-    if not articles:
-        print("artikelnya gada")
-    else:
-        for item in articles:
-            try:
-                title = (
-                    item.find("h1", first=True).text
-                    if item.find("h1", first=True)
-                    else "No title"
-                )
+        logger.error(f"Error scraping {url}: {str(e)}")
 
-                newsitem_author = item.find("p.text-muted.mt-2.small", first=True)
-                name = (
-                    newsitem_author.text.split("Pewarta:")[1]
-                    .split("Editor:")[0]
-                    .strip()
-                    if newsitem_author and "Pewarta:" in newsitem_author.text
-                    else "No author"
-                )
+        return None
 
-                newsitem_p = item.find("p")
-                newsitem_date = item.find(
-                    "span.text-secondary.font-weight-normal", first=True
-                )
+    def close(self):
+        if self.driver:
+            self.driver.quit()
 
-                if newsitem_p:
-                    links = []
-                    for p in newsitem_p:
-                        if p.absolute_links:
-                            links.extend(list(p.absolute_links))
 
-                    data = {
-                        "source_url": url,
-                        "title": title,
-                        "author": name,
-                        # "date": newsitem_date.text if newsitem_date else "No date",
-                        "date": (
-                            datetime.strptime(
-                                newsitem_date.text.replace("WIB", "")
-                                .replace(",", "")
-                                .strip(),
-                                "%A %d %B %Y %H:%M",
-                            )
-                            if newsitem_date
-                            else None
-                        ),
-                        "content": " ".join(p.text for p in newsitem_p),
-                        "links": links,
-                    }
+def main():
+    scraper = NewsScraper()
+    try:
+        document_id = "6780b89a0876a4371fd73ead"
+        urls = scraper.get_urls(document_id)
+        logger.info(f"Found {len(urls)} URLs to process")
 
-                    result = content_collection.insert_one(data)
-                    print(f"Saved content with ID: {result.inserted_id}")
-                    print(f"Data saved: {data}")
-                else:
-                    print("No paragraphs found")
-            except Exception as e:
-                print(f"Error processing article from {url}: {str(e)}")
+        for url in urls:
+            result = scraper.scrape_article(url)
+            if result:
+                logger.info(f"Successfully saved article: {result['title']}")
+    finally:
+        scraper.close()
+
+
+if __name__ == "__main__":
+    main()
