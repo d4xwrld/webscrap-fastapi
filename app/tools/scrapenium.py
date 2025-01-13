@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 class NewsScraper:
     def __init__(self):
-        mongo_url = os.getenv("MONGO_URL")
+        # mongo_url = os.getenv("MONGO_URL")
+        mongo_url = f"mongodb://{os.getenv('DB_USER')}:{os.getenv('DB_PASS')}@{os.getenv('DB_HOST')}/?authSource={os.getenv('DB_NAME')}"
         self.client = MongoClient(mongo_url)
         self.db = self.client[os.getenv("MONGO_DB_NAME")]
         self.collection = self.db[os.getenv("MONGO_COLLECTION_NAME")]
@@ -39,13 +40,18 @@ class NewsScraper:
         self.wait = WebDriverWait(self.driver, 10)
 
     def get_urls(self):
-        url = "https://www.antaranews.com/terkini/1"
-        page = requests.get(url)
-        scrap = BeautifulSoup(page.text, "html.parser")
-        result = scrap.find_all("h2", class_="post_title post_title_medium")
-        links = [item.find("a")["href"] for item in result if item.find("a")]
-        logger.info(f"URLs to process: {links}")
-        return links
+        base_url = "https://www.antaranews.com/terkini/"
+        all_links = []
+        for pages in range(0, 2):
+            url = f"{base_url}{pages}"
+            page = requests.get(url)
+            scrap = BeautifulSoup(page.text, "html.parser")
+            result = scrap.find_all("h2", class_="post_title post_title_medium")
+            links = [item.find("a")["href"] for item in result if item.find("a")]
+            all_links.extend(links)
+            logger.info(f"URLs from page {pages}: {links}")
+        logger.info(f"Total URLs to process: {all_links}")
+        return all_links
 
     def scrape_article(self, url):
         try:
@@ -84,12 +90,6 @@ class NewsScraper:
             )
             author = author_element.text.split("\n")[0].replace("Pewarta: ", "")
 
-            # author = self.wait.until(
-            #     EC.presence_of_element_located(
-            #         (By.CLASS_NAME, "wrap__article-detail-content").find_element(By.CSS_SELECTOR, "p.text-muted mt-2 small")
-            #     )
-            # )
-
             data = {
                 "url": url,
                 "title": title,
@@ -117,13 +117,6 @@ def main():
     try:
         urls = scraper.get_urls()
         logger.info(f"Found {len(urls)} URLs to process")
-
-        data = {
-            "links": urls,
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        document_id = scraper.collection.insert_one(data).inserted_id
-        logger.info(f"Links inserted with document ID: {document_id}")
 
         for url in urls:
             result = scraper.scrape_article(url)
