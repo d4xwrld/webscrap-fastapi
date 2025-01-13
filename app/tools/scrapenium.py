@@ -6,6 +6,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from datetime import datetime
 from pymongo import MongoClient
+from dotenv import load_dotenv
 from bson.objectid import ObjectId
 import logging
 import os
@@ -13,16 +14,19 @@ import locale
 from bs4 import BeautifulSoup
 import requests
 
+load_dotenv()
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class NewsScraper:
     def __init__(self):
-        self.client = MongoClient("mongodb://127.0.0.1:27017/")
-        self.db = self.client["scrapers"]
-        self.collection = self.db["scraper_collection"]
-        self.content_collection = self.db["final_collection"]
+        mongo_url = os.getenv("MONGO_URL")
+        self.client = MongoClient(mongo_url)
+        self.db = self.client[os.getenv("MONGO_DB_NAME")]
+        self.collection = self.db[os.getenv("MONGO_COLLECTION_NAME")]
+        self.content_collection = self.db[os.getenv("MONGO_CONTENT_COLLECTION_NAME")]
         self.setup_driver()
 
     def setup_driver(self):
@@ -35,7 +39,7 @@ class NewsScraper:
         self.wait = WebDriverWait(self.driver, 10)
 
     def get_urls(self):
-        url = "https://www.antaranews.com/terkini/"
+        url = "https://www.antaranews.com/terkini/1"
         page = requests.get(url)
         scrap = BeautifulSoup(page.text, "html.parser")
         result = scrap.find_all("h2", class_="post_title post_title_medium")
@@ -111,11 +115,9 @@ class NewsScraper:
 def main():
     scraper = NewsScraper()
     try:
-        # Step 1: Scrape the links from the website
         urls = scraper.get_urls()
         logger.info(f"Found {len(urls)} URLs to process")
 
-        # Step 2: Save the links to the database
         data = {
             "links": urls,
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -123,7 +125,6 @@ def main():
         document_id = scraper.collection.insert_one(data).inserted_id
         logger.info(f"Links inserted with document ID: {document_id}")
 
-        # Step 3: Scrape each article and save the content to the database
         for url in urls:
             result = scraper.scrape_article(url)
             if result:
